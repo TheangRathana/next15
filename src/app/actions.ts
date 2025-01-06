@@ -2,7 +2,7 @@
 
 import webpush, { PushSubscription as WebPushSubscription } from 'web-push'
 
-// Type guard to ensure subscription has required keys
+// 1. Type guard to ensure the subscription object is valid
 function isValidPushSubscription(subscription: unknown): subscription is WebPushSubscription {
     return (
         typeof subscription === 'object' &&
@@ -15,55 +15,62 @@ function isValidPushSubscription(subscription: unknown): subscription is WebPush
     )
 }
 
-// Convert browser PushSubscription to WebPushSubscription
-function convertToWebPushSubscription(subscription: PushSubscription): WebPushSubscription {
+// 2. Convert the JSON subscription to a WebPushSubscription
+//    Notice we are not using subscription.getKey() anymore.
+//    Instead, we assume `sub.keys.p256dh` and `sub.keys.auth` are already base64 strings.
+function convertToWebPushSubscription(sub: {
+    endpoint: string
+    keys: { p256dh: string; auth: string }
+}): WebPushSubscription {
     return {
-        endpoint: subscription.endpoint,
+        endpoint: sub.endpoint,
         keys: {
-            p256dh: btoa(
-                String.fromCharCode.apply(
-                    null,
-                    Array.from(new Uint8Array(subscription.getKey('p256dh')!))
-                )
-            ),
-            auth: btoa(
-                String.fromCharCode.apply(
-                    null,
-                    Array.from(new Uint8Array(subscription.getKey('auth')!))
-                )
-            ),
+            p256dh: sub.keys.p256dh,
+            auth: sub.keys.auth,
         },
     }
 }
 
+// 3. Set VAPID details
+//    Make sure these environment variables are set in your hosting environment.
 webpush.setVapidDetails(
     'mailto:theangrathana1@gmail.com',
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!, // Public VAPID key
+    process.env.VAPID_PRIVATE_KEY!             // Private VAPID key
 )
 
+// 4. Keep a reference to the current subscription in memory (for demo purposes)
 let subscription: WebPushSubscription | null = null
 
-export async function subscribeUser(sub: PushSubscription) {
+// 5. Function to subscribe a user
+export async function subscribeUser(sub: {
+    endpoint: string
+    keys: { p256dh: string; auth: string }
+}) {
     try {
+        // Convert the JSON subscription to a WebPushSubscription
         const webPushSubscription = convertToWebPushSubscription(sub)
         subscription = webPushSubscription
-        // In a production environment, you would want to store the subscription in a database
-        // For example: await db.subscriptions.create({ data: webPushSubscription })
+        
+        // In production, store subscription in your database here...
+        // await db.subscriptions.create({ data: webPushSubscription })
+
         return { success: true }
     } catch (error) {
-        console.error('Error converting subscription:', error)
+        console.error('Error processing subscription:', error)
         return { success: false, error: 'Failed to process subscription' }
     }
 }
 
+// 6. Function to unsubscribe a user
 export async function unsubscribeUser() {
     subscription = null
-    // In a production environment, you would want to remove the subscription from the database
-    // For example: await db.subscriptions.delete({ where: { ... } })
+    // In production, remove subscription from database here...
+    // await db.subscriptions.delete({ where: { ... } })
     return { success: true }
 }
 
+// 7. Send a push notification
 export async function sendNotification(message: string) {
     if (!subscription) {
         throw new Error('No subscription available')
